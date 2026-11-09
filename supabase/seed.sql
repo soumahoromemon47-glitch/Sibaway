@@ -1,0 +1,22 @@
+insert into public.products (name, sku, category, brand, purchase_price, selling_price, quantity, alert_threshold, location) values
+  ('ThinkPad E14 Gen 5', 'LEN-E14G5', 'Ordinateurs', 'Lenovo', 420000, 495000, 8, 3, 'A-01'),
+  ('MacBook Air M2 13 pouces', 'APL-MBA-M2', 'Ordinateurs', 'Apple', 620000, 715000, 4, 2, 'A-02'),
+  ('Dell Latitude 5440', 'DEL-LAT5440', 'Ordinateurs', 'Dell', 510000, 599000, 3, 2, 'A-01'),
+  ('HP ProBook 450 G10', 'HP-PB450G10', 'Ordinateurs', 'HP', 460000, 540000, 1, 3, 'A-03'),
+  ('Écran LG UltraWide 29WQ', 'LG-29WQ', 'Écrans', 'LG', 135000, 169000, 6, 2, 'B-01'),
+  ('Écran Samsung 24 pouces FHD', 'SAM-S24C', 'Écrans', 'Samsung', 82000, 105000, 12, 4, 'B-02'),
+  ('Écran Dell P2722H 27 pouces', 'DEL-P2722H', 'Écrans', 'Dell', 185000, 229000, 2, 2, 'B-01'),
+  ('SSD Samsung 980 1 To', 'SAM-980-1TB', 'Composants', 'Samsung', 48000, 62000, 15, 5, 'C-01'),
+  ('RAM Kingston Fury 16 Go DDR4', 'KIN-FURY16', 'Composants', 'Kingston', 22000, 29000, 2, 5, 'C-02'),
+  ('Disque externe WD 2 To', 'WD-ELEM-2TB', 'Composants', 'Western Digital', 46000, 59000, 7, 3, 'C-03'),
+  ('Clavier Logitech MX Keys', 'LOG-MXKEYS', 'Accessoires', 'Logitech', 58000, 75000, 5, 2, 'D-01'),
+  ('Souris Logitech M185', 'LOG-M185', 'Accessoires', 'Logitech', 6500, 9500, 24, 8, 'D-02'),
+  ('Casque JBL Tune 510BT', 'JBL-T510BT', 'Accessoires', 'JBL', 18000, 25000, 9, 3, 'D-03'),
+  ('Routeur TP-Link Archer AX23', 'TPL-AX23', 'Accessoires', 'TP-Link', 42000, 55000, 6, 2, 'D-04'),
+  ('Imprimante HP LaserJet M140w', 'HP-M140W', 'Imprimantes', 'HP', 145000, 179000, 3, 2, 'E-01'),
+  ('Imprimante Epson EcoTank L3250', 'EPS-L3250', 'Imprimantes', 'Epson', 155000, 195000, 1, 2, 'E-02'),
+  ('Toner HP 142A noir', 'HP-142A', 'Consommables', 'HP', 32000, 42000, 10, 4, 'F-01'),
+  ('Encre Epson 103 multipack', 'EPS-103-MP', 'Consommables', 'Epson', 18000, 24500, 3, 4, 'F-02'),
+  ('Onduleur APC 900VA', 'APC-BX900', 'Accessoires', 'APC', 68000, 85000, 5, 2, 'D-05'),
+  ('Webcam Logitech C920 HD', 'LOG-C920', 'Accessoires', 'Logitech', 52000, 69000, 0, 2, 'D-06')
+on conflict (sku) do nothing;
