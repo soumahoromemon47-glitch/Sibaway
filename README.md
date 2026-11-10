@@ -6,6 +6,7 @@ Application de gestion de stock pour une boutique de matériel informatique. Int
 
 - Tableau de bord, suivi de la valeur du stock, alertes et graphique des sorties sur 30 jours.
 - Catalogue avec recherche, filtres, catégories, seuils et gestion des produits.
+- Photos de produits importées depuis l’appareil ou renseignées par URL.
 - Entrées, ventes, pertes, casse, retours et ajustements d’inventaire. Le stock ne peut pas devenir négatif.
 - Sessions d’inventaire et rapprochement des écarts.
 - Rapports par période, répartition par catégorie, marge estimée, export CSV (Excel) et impression PDF.
@@ -35,7 +36,7 @@ npm run preview
 ## Configuration Supabase
 
 1. Créer un projet Supabase.
-2. Dans le SQL Editor, exécuter [`supabase/schema.sql`](./supabase/schema.sql), puis [`supabase/seed.sql`](./supabase/seed.sql) pour charger les 20 produits de démonstration.
+2. Dans le SQL Editor, exécuter [`supabase/schema.sql`](./supabase/schema.sql), puis [`supabase/storage.sql`](./supabase/storage.sql) pour configurer le stockage des photos, et enfin [`supabase/seed.sql`](./supabase/seed.sql) pour charger les 20 produits de démonstration.
 3. Créer les comptes e-mail/mot de passe dans **Authentication → Users**. La création d’un compte crée automatiquement son profil, avec le rôle `Employé` par défaut.
 4. Promouvoir l’administrateur initial depuis le SQL Editor (remplacer l’adresse) :
 
@@ -61,6 +62,8 @@ Ne jamais placer la clé `service_role` dans l’application cliente. Les rôles
 Les données ouvertes et les modifications locales sont stockées dans IndexedDB (Dexie). Lorsque Supabase est configuré, les changements sont ajoutés à une file locale puis envoyés dès que la connexion revient. La pastille d’état dans l’en-tête indique l’état du réseau et de synchronisation.
 
 Les données hors ligne sont propres au navigateur et à l’appareil. Pour travailler hors ligne, ouvrir d’abord l’application en ligne afin que l’espace et ses produits soient mis en cache. En mode démonstration sans configuration Supabase, les produits et mouvements sont locaux.
+
+Les images importées sont limitées à 5 Mo et aux formats JPG, PNG et WebP. En mode local, elles sont enregistrées dans le navigateur ; avec Supabase, elles sont synchronisées dans le bucket public `product-images`. Pour les projets Supabase déjà configurés, exécuter une fois `supabase/storage.sql` dans le SQL Editor afin d’activer l’envoi des images.
 
 ## Déploiement
 

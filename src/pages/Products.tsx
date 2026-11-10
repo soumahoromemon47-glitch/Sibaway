@@ -10,6 +10,21 @@ const blankProduct = (): Product => ({
   purchasePrice: 0, sellingPrice: 0, quantity: 0, alertThreshold: 2, location: ''
 })
 
+const maxPhotoSize = 5 * 1024 * 1024
+const supportedPhotoTypes = ['image/jpeg', 'image/png', 'image/webp']
+
+function readPhoto(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result === 'string') resolve(reader.result)
+      else reject(new Error('Impossible de lire cette image.'))
+    }
+    reader.onerror = () => reject(new Error('Impossible de lire cette image.'))
+    reader.readAsDataURL(file)
+  })
+}
+
 export function Products({ user }: { user: AppUser }) {
   const { products, categories, saveProduct, deleteProduct } = useStock()
   const [query, setQuery] = useState('')
@@ -21,6 +36,26 @@ export function Products({ user }: { user: AppUser }) {
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
+
+  const choosePhoto = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0]
+    event.currentTarget.value = ''
+    if (!file) return
+    if (!supportedPhotoTypes.includes(file.type)) {
+      setFormError('Choisissez une image au format JPG, PNG ou WebP.')
+      return
+    }
+    if (file.size > maxPhotoSize) {
+      setFormError('L’image ne doit pas dépasser 5 Mo.')
+      return
+    }
+    try {
+      setField('photo', await readPhoto(file))
+      setFormError('')
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Impossible de lire cette image.')
+    }
+  }
 
   const filtered = useMemo(() => products.filter((product) => {
     const textMatch = `${product.name} ${product.sku} ${product.brand}`.toLocaleLowerCase('fr-FR').includes(query.toLocaleLowerCase('fr-FR'))
@@ -47,7 +82,7 @@ export function Products({ user }: { user: AppUser }) {
       setFormError(error instanceof Error ? error.message : 'Impossible d’enregistrer ce produit.')
     } finally { setSaving(false) }
   }
-  const setField = (field: keyof Product, value: string | number) => setEditing((current) => current ? { ...current, [field]: value } : current)
+  const setField = (field: keyof Product, value: string | number | undefined) => setEditing((current) => current ? { ...current, [field]: value } : current)
   const removeProduct = async () => {
     if (!editing || !window.confirm(`Supprimer « ${editing.name} » du catalogue ? L’historique des mouvements sera conservé.`)) return
     setDeleting(true); setFormError('')
@@ -99,7 +134,9 @@ export function Products({ user }: { user: AppUser }) {
           <label>Prix de vente (FCFA)<input required type="number" min="0" step="1" value={editing.sellingPrice} onChange={(event) => setField('sellingPrice', Number(event.target.value))} /></label>
           {!products.some((product) => product.id === editing.id) ? <label>Quantité initiale<input required type="number" min="0" step="1" value={editing.quantity} onChange={(event) => setField('quantity', Number(event.target.value))} /></label> : <label>Quantité en stock<input disabled type="number" value={editing.quantity} /><small>Le stock évolue via les mouvements.</small></label>}
           <label>Seuil d’alerte<input required type="number" min="0" step="1" value={editing.alertThreshold} onChange={(event) => setField('alertThreshold', Number(event.target.value))} /></label>
-          <label className="span-two">URL de la photo <span className="optional">(facultatif)</span><input type="url" value={editing.photo ?? ''} onChange={(event) => setField('photo', event.target.value)} placeholder="https://…" /></label>
+          <label className="span-two">Image du produit <span className="optional">(JPG, PNG ou WebP · 5 Mo max.)</span><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => void choosePhoto(event)} /></label>
+          {editing.photo && <div className="product-photo-preview span-two"><img src={editing.photo} alt="Aperçu de la photo du produit" /><button type="button" className="button button-secondary" onClick={() => setField('photo', undefined)}>Retirer l’image</button></div>}
+          <label className="span-two">Ou URL de la photo <span className="optional">(facultatif)</span><input type="url" value={editing.photo?.startsWith('data:') ? '' : editing.photo ?? ''} onChange={(event) => setField('photo', event.target.value)} placeholder="https://…" /></label>
           {formError && <p className="form-error span-two">{formError}</p>}
           <div className="modal-actions span-two">{user.role === 'Administrateur' && products.some((product) => product.id === editing.id) && <button type="button" className="button button-danger" onClick={() => void removeProduct()} disabled={deleting}>{deleting ? 'Suppression…' : 'Supprimer'}</button>}<span className="modal-actions-spacer" /><button type="button" className="button button-secondary" onClick={() => setShowForm(false)}>Annuler</button><button className="button button-primary" disabled={saving}>{saving ? 'Enregistrement…' : 'Enregistrer le produit'}</button></div>
         </form>

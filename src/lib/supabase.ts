@@ -7,15 +7,32 @@ const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
 export const isSupabaseConfigured = Boolean(url && anonKey && !url.includes('votre-projet'))
 export const supabase = isSupabaseConfigured ? createClient(url!, anonKey!) : null
 
+async function syncProductPhoto(product: Product) {
+  if (!supabase || !product.photo?.startsWith('data:')) return product.photo ?? null
+  const match = /^data:(image\/(?:jpeg|png|webp));base64,/.exec(product.photo)
+  if (!match) throw new Error('Le format de cette image ne peut pas être synchronisé.')
+  const response = await fetch(product.photo)
+  if (!response.ok) throw new Error('Impossible de préparer l’image pour la synchronisation.')
+  const image = await response.blob()
+  const objectPath = `products/${product.id}/photo`
+  const { error } = await supabase.storage.from('product-images').upload(objectPath, image, {
+    contentType: match[1],
+    upsert: true
+  })
+  if (error) throw error
+  return supabase.storage.from('product-images').getPublicUrl(objectPath).data.publicUrl
+}
+
 export async function syncProduct(product: Product, initialQuantity?: number) {
   if (!supabase) return
+  const photoUrl = await syncProductPhoto(product)
   const row: Record<string, unknown> = {
     id: product.id,
     name: product.name,
     sku: product.sku,
     category: product.category,
     brand: product.brand,
-    photo_url: product.photo ?? null,
+    photo_url: photoUrl,
     purchase_price: product.purchasePrice,
     selling_price: product.sellingPrice,
     alert_threshold: product.alertThreshold,

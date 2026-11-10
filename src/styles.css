@@ -193,6 +193,8 @@ kbd { padding: 3px 5px; border: 1px solid var(--line); border-radius: 4px; color
 .product-cell { display: flex; align-items: center; gap: 10px; min-width: 200px; }
 .product-thumb { width: 36px; height: 36px; display: grid; place-items: center; flex: 0 0 auto; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: var(--panel-soft); }
 .product-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.product-photo-preview { display: flex; align-items: center; gap: 12px; }
+.product-photo-preview img { width: 72px; height: 72px; object-fit: cover; border: 1px solid var(--line); border-radius: 9px; }
 .product-cell strong, .product-cell small { display: block; }
 .product-cell strong, .movement-product strong { color: var(--text); font-size: 10px; font-weight: 600; }
 .product-cell small, .movement-product small { margin-top: 4px; color: var(--muted); font-size: 9px; }
