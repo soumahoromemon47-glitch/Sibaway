@@ -7,6 +7,14 @@ import type { AppUser, MovementType } from '../types'
 
 const movementTypes: MovementType[] = ['Réception', 'Vente', 'Perte', 'Casse', 'Retour']
 
+function movementErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
+    return error.message
+  }
+  return 'Impossible d’enregistrer le mouvement.'
+}
+
 export function Movements({ user }: { user: AppUser }) {
   const { products, movements, addMovement } = useStock()
   const [query, setQuery] = useState('')
@@ -34,7 +42,7 @@ export function Movements({ user }: { user: AppUser }) {
       await addMovement({ productId, type, quantity, note, ...(type === 'Réception' ? { supplier } : {}) }, user.name)
       setOpen(false); setQuantity(1); setNote(''); setSupplier('')
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : 'Impossible d’enregistrer le mouvement.')
+      setError(movementErrorMessage(submitError))
     } finally { setSaving(false) }
   }
 

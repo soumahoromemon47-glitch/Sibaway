@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { db, initializeDemoData } from '../lib/database'
 import { categories as defaultCategories } from '../lib/demo-data'
-import { isSupabaseConfigured, supabase, syncCategory, syncCategoryDelete, syncInventory, syncMovement, syncProduct, syncProductDelete } from '../lib/supabase'
+import { isStockInsufficientError, isSupabaseConfigured, supabase, syncCategory, syncCategoryDelete, syncInventory, syncMovement, syncProduct, syncProductDelete } from '../lib/supabase'
 import { today } from '../lib/format'
 import type { AppUser, InventorySession, Movement, MovementType, Product } from '../types'
 
@@ -16,6 +16,7 @@ type StockContextValue = {
   isOnline: boolean
   isSynced: boolean
   refresh: () => Promise<void>
+  retrySync: () => Promise<void>
   saveProduct: (product: Product, isNew?: boolean) => Promise<void>
   deleteProduct: (id: string) => Promise<void>
   addMovement: (movement: NewMovement, user: string) => Promise<void>
@@ -26,6 +27,23 @@ type StockContextValue = {
 }
 
 const StockContext = createContext<StockContextValue | null>(null)
+
+function describeError(error: unknown, fallback: string): string {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'string') return error
+  if (error && typeof error === 'object') {
+    const messageValue = 'message' in error ? error.message : undefined
+    const message = typeof messageValue === 'string' ? messageValue : fallback
+    const context = [
+      'code' in error ? error.code : undefined,
+      'details' in error ? error.details : undefined,
+      'hint' in error ? error.hint : undefined
+    ]
+      .filter((value): value is string => typeof value === 'string' && value.length > 0)
+    return context.length ? `${message} (${context.join(' · ')})` : message
+  }
+  return fallback
+}
 
 const movementDelta = (type: MovementType, quantity: number) => {
   if (type === 'Réception' || type === 'Retour') return Math.abs(quantity)
@@ -152,12 +170,23 @@ export function StockProvider({ children, user }: { children: ReactNode; user: A
         const operations = await db.queue.orderBy('id').toArray()
         if (operations.length === 0) break
         for (const operation of operations) {
-          if (operation.type === 'product_upsert') await syncProduct(operation.payload as Product, operation.initialQuantity)
-          else if (operation.type === 'product_delete') await syncProductDelete(String(operation.payload))
-          else if (operation.type === 'movement_insert') await syncMovement(operation.payload as Movement)
-          else if (operation.type === 'category_upsert') await syncCategory(String(operation.payload))
-          else if (operation.type === 'category_delete') await syncCategoryDelete(String(operation.payload))
-          else await syncInventory(operation.payload as InventorySession)
+          try {
+            if (operation.type === 'product_upsert') await syncProduct(operation.payload as Product, operation.initialQuantity)
+            else if (operation.type === 'product_delete') await syncProductDelete(String(operation.payload))
+            else if (operation.type === 'movement_insert') await syncMovement(operation.payload as Movement)
+            else if (operation.type === 'category_upsert') await syncCategory(String(operation.payload))
+            else if (operation.type === 'category_delete') await syncCategoryDelete(String(operation.payload))
+            else await syncInventory(operation.payload as InventorySession)
+          } catch (operationError) {
+            if (operation.type !== 'movement_insert' || !isStockInsufficientError(operationError)) throw operationError
+            const movement = operation.payload as Movement
+            await db.transaction('rw', db.movements, db.queue, async () => {
+              await db.movements.delete(movement.id)
+              if (operation.id !== undefined) await db.queue.delete(operation.id)
+            })
+            await refresh()
+            throw new Error(`Mouvement refusé : stock insuffisant pour ${movement.productName}. Le stock local a été actualisé.`)
+          }
           if (operation.id !== undefined) await db.queue.delete(operation.id)
         }
       }
@@ -167,16 +196,24 @@ export function StockProvider({ children, user }: { children: ReactNode; user: A
         try {
           await refresh()
         } catch (refreshError) {
-          setError(refreshError instanceof Error ? `Synchronisé, mais le rechargement a échoué : ${refreshError.message}` : 'Synchronisé, mais le rechargement a échoué.')
+          setError(`Synchronisé, mais le rechargement a échoué : ${describeError(refreshError, 'Erreur inconnue.')}`)
         }
       }
     } catch (syncError) {
       setIsSynced(false)
-      setError(syncError instanceof Error ? `Synchronisation impossible : ${syncError.message}` : 'Synchronisation impossible.')
+      setError(`Synchronisation impossible : ${describeError(syncError, 'Erreur inconnue.')}`)
     } finally {
       syncing.current = false
     }
   }, [refresh])
+
+  const retrySync = useCallback(async () => {
+    if (!isSupabaseConfigured || !supabase) {
+      await refresh()
+      return
+    }
+    await flushQueue()
+  }, [flushQueue, refresh])
 
   useEffect(() => {
     let active = true
@@ -184,7 +221,7 @@ export function StockProvider({ children, user }: { children: ReactNode; user: A
     refresh()
       .then(() => flushQueue())
       .catch((loadError: unknown) => {
-        if (active) setError(loadError instanceof Error ? loadError.message : 'Impossible de charger les données.')
+        if (active) setError(describeError(loadError, 'Impossible de charger les données.'))
       })
       .finally(() => { if (active) setLoading(false) })
     const onOnline = () => { setIsOnline(true); void flushQueue() }
@@ -229,7 +266,10 @@ export function StockProvider({ children, user }: { children: ReactNode; user: A
     const currentProduct = await db.products.get(input.productId)
     if (!currentProduct) throw new Error('Ce produit n’existe plus.')
     const delta = movementDelta(input.type, input.quantity)
-    if (currentProduct.quantity + delta < 0) throw new Error('Stock insuffisant : cette sortie ferait passer le stock sous zéro.')
+    const syncImmediately = isSupabaseConfigured && navigator.onLine
+    if (!syncImmediately && currentProduct.quantity + delta < 0) {
+      throw new Error('Stock insuffisant : cette sortie ferait passer le stock sous zéro.')
+    }
     const movement: Movement = {
       ...input,
       id: crypto.randomUUID(),
@@ -239,11 +279,26 @@ export function StockProvider({ children, user }: { children: ReactNode; user: A
       user: actor,
       quantity: input.quantity
     }
-    await db.transaction('rw', db.products, db.movements, db.queue, async () => {
-      await db.products.put({ ...currentProduct, quantity: currentProduct.quantity + delta })
-      await db.movements.add(movement)
-      await db.queue.add({ type: 'movement_insert', payload: movement, createdAt: today() })
-    })
+    if (syncImmediately) {
+      if (await db.queue.count() > 0) {
+        await flushQueue()
+        if (await db.queue.count() > 0) {
+          throw new Error('Une synchronisation précédente est en attente. Corrigez-la avant d’enregistrer un nouveau mouvement.')
+        }
+      }
+      const confirmedQuantity = await syncMovement(movement)
+      if (confirmedQuantity === null) throw new Error('La synchronisation Supabase n’est pas disponible.')
+      await db.transaction('rw', db.products, db.movements, async () => {
+        await db.products.put({ ...currentProduct, quantity: confirmedQuantity })
+        await db.movements.put(movement)
+      })
+    } else {
+      await db.transaction('rw', db.products, db.movements, db.queue, async () => {
+        await db.products.put({ ...currentProduct, quantity: currentProduct.quantity + delta })
+        await db.movements.add(movement)
+        await db.queue.add({ type: 'movement_insert', payload: movement, createdAt: today() })
+      })
+    }
     const [localProducts, localMovements] = await Promise.all([db.products.toArray(), db.movements.toArray()])
     setProducts(localProducts)
     setMovements(localMovements.sort((a, b) => b.date.localeCompare(a.date)))
@@ -302,8 +357,8 @@ export function StockProvider({ children, user }: { children: ReactNode; user: A
 
   const value = useMemo(() => ({
     products, movements, inventories, categories, loading, error, isOnline, isSynced,
-    refresh, saveProduct, deleteProduct, addMovement, saveInventory, validateInventory, addCategory, removeCategory
-  }), [products, movements, inventories, categories, loading, error, isOnline, isSynced, refresh, saveProduct, deleteProduct, addMovement, saveInventory, validateInventory, addCategory, removeCategory])
+    refresh, retrySync, saveProduct, deleteProduct, addMovement, saveInventory, validateInventory, addCategory, removeCategory
+  }), [products, movements, inventories, categories, loading, error, isOnline, isSynced, refresh, retrySync, saveProduct, deleteProduct, addMovement, saveInventory, validateInventory, addCategory, removeCategory])
 
   return <StockContext.Provider value={value}>{children}</StockContext.Provider>
 }

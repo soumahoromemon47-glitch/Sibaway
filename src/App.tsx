@@ -55,7 +55,7 @@ function Workspace({ user, onLogout }: { user: AppUser; onLogout: () => void }) 
         </header>
         <div className="page-content">
           <div className="page-heading"><div><p className="eyebrow">BONJOUR, {user.name.split(' ')[0].toLocaleUpperCase('fr-FR')}</p><h1>{heading.title}</h1><p>{heading.description}</p></div></div>
-          {stock.error && <div className="error-banner" role="alert">{stock.error}<button onClick={() => void stock.refresh()}>Réessayer</button></div>}
+          {stock.error && <div className="error-banner" role="alert">{stock.error}<button onClick={() => void stock.retrySync()}>Réessayer</button></div>}
           {stock.loading ? <div className="loading-state"><span className="spinner" />Chargement de votre espace…</div> : (
             <>
               <Suspense fallback={<div className="loading-state"><span className="spinner" />Chargement de la page…</div>}>
