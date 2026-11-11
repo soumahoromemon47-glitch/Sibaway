@@ -5,7 +5,7 @@ Application de gestion de stock pour une boutique de matériel informatique. Int
 ## Fonctionnalités
 
 - Tableau de bord, suivi de la valeur du stock, alertes et graphique des sorties sur 30 jours.
-- Catalogue avec recherche, filtres, catégories, seuils et gestion des produits.
+- Catalogue avec recherche, filtres, produits regroupés par catégorie, seuils et gestion des produits.
 - Photos de produits importées depuis l’appareil ou renseignées par URL.
 - Entrées, ventes, pertes, casse, retours et ajustements d’inventaire. Le stock ne peut pas devenir négatif.
 - Sessions d’inventaire et rapprochement des écarts.
