@@ -24,6 +24,8 @@ const headings: Record<PageId, { title: string; description: string }> = {
   settings: { title: 'Paramètres', description: 'Personnalisez votre espace de gestion.' }
 }
 
+const inactivityTimeout = 30 * 60 * 1000
+
 function Workspace({ user, onLogout }: { user: AppUser; onLogout: () => void }) {
   const stock = useStock()
   const [page, setPage] = useState<PageId>('dashboard')
@@ -79,6 +81,7 @@ function Workspace({ user, onLogout }: { user: AppUser; onLogout: () => void }) 
 export default function App() {
   const [user, setUser] = useState<AppUser | null>(null)
   const [authLoading, setAuthLoading] = useState(isSupabaseConfigured)
+  const [sessionExpired, setSessionExpired] = useState(false)
 
   useEffect(() => {
     const client = supabase
@@ -96,12 +99,45 @@ export default function App() {
     return () => { active = false; subscription.subscription.unsubscribe() }
   }, [])
 
+  useEffect(() => {
+    if (!user) return
+
+    let timeout: number
+    const resetTimeout = () => {
+      window.clearTimeout(timeout)
+      timeout = window.setTimeout(() => {
+        setSessionExpired(true)
+        setUser(null)
+        if (supabase) {
+          void supabase.auth.signOut({ scope: 'local' }).then(({ error }) => {
+            if (error) console.error('Impossible de fermer la session Supabase localement.', error)
+          }).catch((error: unknown) => {
+            console.error('Impossible de fermer la session Supabase localement.', error)
+          })
+        }
+      }, inactivityTimeout)
+    }
+    const activityEvents = ['pointerdown', 'pointermove', 'keydown', 'scroll', 'touchstart'] as const
+    activityEvents.forEach((event) => window.addEventListener(event, resetTimeout, { passive: true }))
+    resetTimeout()
+
+    return () => {
+      window.clearTimeout(timeout)
+      activityEvents.forEach((event) => window.removeEventListener(event, resetTimeout))
+    }
+  }, [user])
+
   const logout = async () => {
     if (supabase) await supabase.auth.signOut()
     setUser(null)
   }
 
+  const login = (nextUser: AppUser) => {
+    setSessionExpired(false)
+    setUser(nextUser)
+  }
+
   if (authLoading) return <div className="auth-loading"><span className="spinner" />Vérification de la session…</div>
-  if (!user) return <Login onLogin={setUser} />
+  if (!user) return <Login onLogin={login} sessionExpired={sessionExpired} />
   return <StockProvider user={user}><Workspace user={user} onLogout={() => void logout()} /></StockProvider>
 }

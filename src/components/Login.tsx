@@ -3,7 +3,7 @@ import { ArrowRight, Boxes, LockKeyhole } from 'lucide-react'
 import { isSupabaseConfigured, supabase } from '../lib/supabase'
 import type { AppUser, UserRole } from '../types'
 
-export function Login({ onLogin }: { onLogin: (user: AppUser) => void }) {
+export function Login({ onLogin, sessionExpired = false }: { onLogin: (user: AppUser) => void; sessionExpired?: boolean }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -39,6 +39,7 @@ export function Login({ onLogin }: { onLogin: (user: AppUser) => void }) {
         <p className="eyebrow">GESTION DE STOCK</p>
         <h1>Bienvenue chez<br /><span>Sibaway.</span></h1>
         <p className="login-copy">Connectez-vous pour retrouver votre espace de gestion.</p>
+        {sessionExpired && <p className="muted small" role="status">Votre session a été fermée après 30 minutes d’inactivité.</p>}
         {isSupabaseConfigured ? (
           <form onSubmit={submit} className="login-form">
             <label>E-mail<input type="email" autoComplete="username" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="nom@entreprise.com" /></label>

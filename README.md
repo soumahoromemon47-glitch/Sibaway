@@ -11,6 +11,7 @@ Application de gestion de stock pour une boutique de matériel informatique. Int
 - Sessions d’inventaire et rapprochement des écarts.
 - Rapports par période, répartition par catégorie, marge estimée, export CSV (Excel) et impression PDF.
 - Thème sombre par défaut, bascule clair/sombre et navigation mobile.
+- Déconnexion automatique après 30 minutes sans activité.
 - Cache IndexedDB, file d’attente hors ligne et synchronisation automatique avec Supabase au retour du réseau.
 - PWA installable. Le mode démonstration local est prêt à l’emploi.
 
