@@ -1,16 +1,18 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { db, initializeDemoData } from '../lib/database'
 import { categories as defaultCategories } from '../lib/demo-data'
-import { isStockInsufficientError, isSupabaseConfigured, supabase, syncCategory, syncCategoryDelete, syncInventory, syncMovement, syncProduct, syncProductDelete } from '../lib/supabase'
+import { isStockInsufficientError, isSupabaseConfigured, supabase, syncCategory, syncCategoryBrand, syncCategoryBrandDelete, syncCategoryDelete, syncInventory, syncMovement, syncProduct, syncProductDelete } from '../lib/supabase'
 import { today } from '../lib/format'
-import type { AppUser, InventorySession, Movement, MovementType, Product } from '../types'
+import type { AppUser, CategoryBrand, InventorySession, Movement, MovementType, Product } from '../types'
 
-type NewMovement = Omit<Movement, 'id' | 'date' | 'user' | 'productName' | 'sku'> & { date?: string }
+type NewMovement = Omit<Movement, 'id' | 'date' | 'user' | 'productName' | 'sku' | 'category' | 'type'> & { type: MovementType; date?: string }
+type BrandsByCategory = Record<string, string[]>
 type StockContextValue = {
   products: Product[]
   movements: Movement[]
   inventories: InventorySession[]
   categories: string[]
+  brandsByCategory: BrandsByCategory
   loading: boolean
   error: string | null
   isOnline: boolean
@@ -24,6 +26,8 @@ type StockContextValue = {
   validateInventory: (inventory: InventorySession, user: string) => Promise<void>
   addCategory: (category: string) => Promise<void>
   removeCategory: (category: string) => Promise<void>
+  addBrand: (category: string, brand: string) => Promise<void>
+  removeBrand: (category: string, brand: string) => Promise<void>
 }
 
 const StockContext = createContext<StockContextValue | null>(null)
@@ -46,9 +50,28 @@ function describeError(error: unknown, fallback: string): string {
 }
 
 const movementDelta = (type: MovementType, quantity: number) => {
-  if (type === 'Réception' || type === 'Retour') return Math.abs(quantity)
+  if (type === 'Réception') return Math.abs(quantity)
   if (type === 'Ajustement d’inventaire') return quantity
   return -Math.abs(quantity)
+}
+
+function includeProductBrands(brandsByCategory: BrandsByCategory, products: Product[]): BrandsByCategory {
+  const result = Object.fromEntries(
+    Object.entries(brandsByCategory).map(([category, brands]) => [category, [...brands]])
+  )
+  for (const product of products) {
+    if (!product.category || !product.brand) continue
+    const brands = result[product.category] ?? []
+    if (!brands.some((brand) => brand.toLocaleLowerCase('fr-FR') === product.brand.toLocaleLowerCase('fr-FR'))) {
+      result[product.category] = [...brands, product.brand]
+    }
+  }
+  return result
+}
+
+function isBrandsByCategory(value: unknown): value is BrandsByCategory {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    && Object.values(value).every((brands) => Array.isArray(brands) && brands.every((brand) => typeof brand === 'string'))
 }
 
 function mapRemoteProduct(row: Record<string, unknown>): Product {
@@ -74,7 +97,8 @@ function mapRemoteMovement(row: Record<string, unknown>): Movement {
     productId: String(row.product_id),
     productName: String(product?.name ?? 'Produit supprimé'),
     sku: String(product?.sku ?? ''),
-    type: String(row.type) as MovementType,
+    category: String(row.product_category ?? product?.category ?? ''),
+    type: String(row.type) as Movement['type'],
     quantity: Number(row.quantity),
     date: String(row.occurred_at),
     user: String((row.profiles as Record<string, unknown> | null)?.full_name ?? 'Équipe'),
@@ -88,6 +112,7 @@ export function StockProvider({ children, user }: { children: ReactNode; user: A
   const [movements, setMovements] = useState<Movement[]>([])
   const [inventories, setInventories] = useState<InventorySession[]>([])
   const [categories, setCategories] = useState(defaultCategories)
+  const [brandsByCategory, setBrandsByCategory] = useState<BrandsByCategory>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
@@ -107,6 +132,18 @@ export function StockProvider({ children, user }: { children: ReactNode; user: A
       try { setCategories(JSON.parse(storedCategories.value) as string[]) }
       catch (parseError) { throw new Error(`Catégories locales illisibles : ${String(parseError)}`) }
     }
+    const storedBrands = await db.metadata.get('brands-by-category')
+    let localBrands: BrandsByCategory = {}
+    if (storedBrands) {
+      try {
+        const parsed: unknown = JSON.parse(storedBrands.value)
+        if (!isBrandsByCategory(parsed)) throw new Error('format invalide')
+        localBrands = parsed
+      } catch (parseError) {
+        throw new Error(`Marques locales illisibles : ${String(parseError)}`)
+      }
+    }
+    setBrandsByCategory(includeProductBrands(localBrands, cachedProducts))
     if (!isSupabaseConfigured || !supabase) {
       await initializeDemoData()
       const [localProducts, localMovements, localInventories] = await Promise.all([
@@ -115,19 +152,24 @@ export function StockProvider({ children, user }: { children: ReactNode; user: A
       setProducts(localProducts)
       setMovements(localMovements.sort((a, b) => b.date.localeCompare(a.date)))
       setInventories(localInventories.sort((a, b) => b.date.localeCompare(a.date)))
+      const currentBrands = includeProductBrands(localBrands, localProducts)
+      await db.metadata.put({ key: 'brands-by-category', value: JSON.stringify(currentBrands) })
+      setBrandsByCategory(currentBrands)
       return
     }
     if (!navigator.onLine) return
 
-    const [remoteProducts, remoteMovements, remoteCategories, remoteInventories] = await Promise.all([
+    const [remoteProducts, remoteMovements, remoteCategories, remoteBrands, remoteInventories] = await Promise.all([
       supabase.from('products').select('*').order('created_at', { ascending: false }),
-      supabase.from('stock_movements').select('*, products(name, sku), profiles(full_name)').order('occurred_at', { ascending: false }).limit(500),
+      supabase.from('stock_movements').select('*, products(name, sku, category), profiles(full_name)').order('occurred_at', { ascending: false }).limit(500),
       supabase.from('categories').select('name').order('name'),
+      supabase.from('category_brands').select('category_name, name').order('name'),
       supabase.from('inventory_sessions').select('*, inventory_lines(*)').order('started_at', { ascending: false })
     ])
     if (remoteProducts.error) throw remoteProducts.error
     if (remoteMovements.error) throw remoteMovements.error
     if (remoteCategories.error) throw remoteCategories.error
+    if (remoteBrands.error) throw remoteBrands.error
     if (remoteInventories.error) throw remoteInventories.error
     const nextProducts = (remoteProducts.data ?? []).map((row) => mapRemoteProduct(row as Record<string, unknown>))
     const nextMovements = (remoteMovements.data ?? []).map((row) => mapRemoteMovement(row as Record<string, unknown>))
@@ -159,6 +201,16 @@ export function StockProvider({ children, user }: { children: ReactNode; user: A
     const resolvedCategories = remoteCategoryNames.length ? remoteCategoryNames : defaultCategories
     await db.metadata.put({ key: 'categories', value: JSON.stringify(resolvedCategories) })
     setCategories(resolvedCategories)
+    const nextBrands: BrandsByCategory = {}
+    for (const row of remoteBrands.data ?? []) {
+      const list = nextBrands[row.category_name] ?? []
+      if (!list.some((brand) => brand.toLocaleLowerCase('fr-FR') === row.name.toLocaleLowerCase('fr-FR'))) {
+        nextBrands[row.category_name] = [...list, row.name]
+      }
+    }
+    const resolvedBrands = includeProductBrands(nextBrands, nextProducts)
+    await db.metadata.put({ key: 'brands-by-category', value: JSON.stringify(resolvedBrands) })
+    setBrandsByCategory(resolvedBrands)
   }, [])
 
   const flushQueue = useCallback(async () => {
@@ -176,6 +228,8 @@ export function StockProvider({ children, user }: { children: ReactNode; user: A
             else if (operation.type === 'movement_insert') await syncMovement(operation.payload as Movement)
             else if (operation.type === 'category_upsert') await syncCategory(String(operation.payload))
             else if (operation.type === 'category_delete') await syncCategoryDelete(String(operation.payload))
+            else if (operation.type === 'brand_upsert') await syncCategoryBrand(operation.payload as CategoryBrand)
+            else if (operation.type === 'brand_delete') await syncCategoryBrandDelete(operation.payload as CategoryBrand)
             else await syncInventory(operation.payload as InventorySession)
           } catch (operationError) {
             if (operation.type !== 'movement_insert' || !isStockInsufficientError(operationError)) throw operationError
@@ -275,6 +329,7 @@ export function StockProvider({ children, user }: { children: ReactNode; user: A
       id: crypto.randomUUID(),
       productName: currentProduct.name,
       sku: currentProduct.sku,
+      category: currentProduct.category,
       date: input.date ?? today(),
       user: actor,
       quantity: input.quantity
@@ -346,19 +401,63 @@ export function StockProvider({ children, user }: { children: ReactNode; user: A
   const removeCategory = useCallback(async (category: string) => {
     if (products.some((product) => product.category === category)) throw new Error('Cette catégorie contient encore des produits.')
     const nextCategories = categories.filter((item) => item !== category)
+    const nextBrands = { ...brandsByCategory }
+    delete nextBrands[category]
     await db.metadata.put({ key: 'categories', value: JSON.stringify(nextCategories) })
+    await db.metadata.put({ key: 'brands-by-category', value: JSON.stringify(nextBrands) })
     if (isSupabaseConfigured) {
       await db.queue.add({ type: 'category_delete', payload: category, createdAt: today() })
       setIsSynced(false)
       if (navigator.onLine) void flushQueue()
     }
     setCategories(nextCategories)
-  }, [categories, products, flushQueue])
+    setBrandsByCategory(nextBrands)
+  }, [categories, products, brandsByCategory, flushQueue])
+
+  const addBrand = useCallback(async (category: string, brand: string) => {
+    if (!categories.includes(category)) throw new Error('Choisissez une catégorie existante.')
+    const name = brand.trim()
+    if (!name) throw new Error('Saisissez un nom de marque.')
+    const current = brandsByCategory[category] ?? []
+    if (current.some((item) => item.toLocaleLowerCase('fr-FR') === name.toLocaleLowerCase('fr-FR'))) {
+      throw new Error('Cette marque existe déjà dans cette catégorie.')
+    }
+    const nextBrands = { ...brandsByCategory, [category]: [...current, name] }
+    const payload: CategoryBrand = { category, name }
+    await db.metadata.put({ key: 'brands-by-category', value: JSON.stringify(nextBrands) })
+    if (isSupabaseConfigured) {
+      await db.transaction('rw', db.queue, async () => {
+        await db.queue.add({ type: 'category_upsert', payload: category, createdAt: today() })
+        await db.queue.add({ type: 'brand_upsert', payload, createdAt: today() })
+      })
+      setIsSynced(false)
+      if (navigator.onLine) void flushQueue()
+    }
+    setBrandsByCategory(nextBrands)
+  }, [categories, brandsByCategory, flushQueue])
+
+  const removeBrand = useCallback(async (category: string, brand: string) => {
+    if (products.some((product) => product.category === category && product.brand.toLocaleLowerCase('fr-FR') === brand.toLocaleLowerCase('fr-FR'))) {
+      throw new Error('Cette marque est encore utilisée par un produit.')
+    }
+    const nextBrands = {
+      ...brandsByCategory,
+      [category]: (brandsByCategory[category] ?? []).filter((item) => item !== brand)
+    }
+    const payload: CategoryBrand = { category, name: brand }
+    await db.metadata.put({ key: 'brands-by-category', value: JSON.stringify(nextBrands) })
+    if (isSupabaseConfigured) {
+      await db.queue.add({ type: 'brand_delete', payload, createdAt: today() })
+      setIsSynced(false)
+      if (navigator.onLine) void flushQueue()
+    }
+    setBrandsByCategory(nextBrands)
+  }, [products, brandsByCategory, flushQueue])
 
   const value = useMemo(() => ({
-    products, movements, inventories, categories, loading, error, isOnline, isSynced,
-    refresh, retrySync, saveProduct, deleteProduct, addMovement, saveInventory, validateInventory, addCategory, removeCategory
-  }), [products, movements, inventories, categories, loading, error, isOnline, isSynced, refresh, retrySync, saveProduct, deleteProduct, addMovement, saveInventory, validateInventory, addCategory, removeCategory])
+    products, movements, inventories, categories, brandsByCategory, loading, error, isOnline, isSynced,
+    refresh, retrySync, saveProduct, deleteProduct, addMovement, saveInventory, validateInventory, addCategory, removeCategory, addBrand, removeBrand
+  }), [products, movements, inventories, categories, brandsByCategory, loading, error, isOnline, isSynced, refresh, retrySync, saveProduct, deleteProduct, addMovement, saveInventory, validateInventory, addCategory, removeCategory, addBrand, removeBrand])
 
   return <StockContext.Provider value={value}>{children}</StockContext.Provider>
 }

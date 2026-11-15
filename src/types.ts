@@ -14,19 +14,25 @@ export type Product = {
   location: string
 }
 
-export type MovementType = 'Réception' | 'Vente' | 'Perte' | 'Casse' | 'Retour' | 'Ajustement d’inventaire'
+export type MovementType = 'Réception' | 'Vente' | 'Perte' | 'Casse' | 'Ajustement d’inventaire'
 
 export type Movement = {
   id: string
   productId: string
   productName: string
   sku: string
-  type: MovementType
+  category?: string
+  type: MovementType | 'Retour'
   quantity: number
   date: string
   user: string
   note: string
   supplier?: string
+}
+
+export type CategoryBrand = {
+  category: string
+  name: string
 }
 
 export type InventoryLine = {
@@ -47,8 +53,8 @@ export type InventorySession = {
 
 export type PendingOperation = {
   id?: number
-  type: 'product_upsert' | 'product_delete' | 'movement_insert' | 'category_upsert' | 'category_delete' | 'inventory_upsert'
-  payload: Product | Movement | InventorySession | string
+  type: 'product_upsert' | 'product_delete' | 'movement_insert' | 'category_upsert' | 'category_delete' | 'brand_upsert' | 'brand_delete' | 'inventory_upsert'
+  payload: Product | Movement | InventorySession | CategoryBrand | string
   initialQuantity?: number
   createdAt: string
 }

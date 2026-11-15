@@ -6,7 +6,6 @@ create type public.stock_movement_type as enum (
   'Vente',
   'Perte',
   'Casse',
-  'Retour',
   'Ajustement d’inventaire'
 );
 
@@ -22,6 +21,13 @@ create table public.categories (
   id uuid primary key default gen_random_uuid(),
   name text not null unique,
   created_at timestamptz not null default now()
+);
+
+create table public.category_brands (
+  category_name text not null references public.categories (name) on update cascade on delete cascade,
+  name text not null,
+  created_at timestamptz not null default now(),
+  primary key (category_name, name)
 );
 
 create table public.products (
@@ -45,6 +51,7 @@ create table public.stock_movements (
   product_id uuid references public.products (id) on delete set null,
   product_name text not null,
   product_sku text not null,
+  product_category text not null default '',
   type public.stock_movement_type not null,
   quantity integer not null,
   occurred_at timestamptz not null default now(),
@@ -191,7 +198,7 @@ begin
     raise exception 'Un produit doit être associé au mouvement.';
   end if;
 
-  if new.type in ('Réception', 'Retour') then
+  if new.type = 'Réception' then
     stock_delta := new.quantity;
   elsif new.type = 'Ajustement d’inventaire' then
     stock_delta := new.quantity;
@@ -237,7 +244,7 @@ begin
     return old;
   end if;
 
-  if old.type in ('Réception', 'Retour') then
+  if old.type = 'Réception' then
     stock_delta := -old.quantity;
   elsif old.type = 'Ajustement d’inventaire' then
     stock_delta := -old.quantity;
@@ -282,6 +289,7 @@ for each row execute function public.prevent_validated_inventory_edit();
 
 alter table public.profiles enable row level security;
 alter table public.categories enable row level security;
+alter table public.category_brands enable row level security;
 alter table public.products enable row level security;
 alter table public.stock_movements enable row level security;
 alter table public.inventory_sessions enable row level security;
@@ -303,6 +311,11 @@ create policy "Signed-in users read categories"
 on public.categories for select to authenticated using (true);
 create policy "Administrators manage categories"
 on public.categories for all to authenticated
+using (public.is_administrator()) with check (public.is_administrator());
+create policy "Signed-in users read category brands"
+on public.category_brands for select to authenticated using (true);
+create policy "Administrators manage category brands"
+on public.category_brands for all to authenticated
 using (public.is_administrator()) with check (public.is_administrator());
 
 create policy "Signed-in users read products"

@@ -20,3 +20,13 @@ insert into public.products (name, sku, category, brand, purchase_price, selling
   ('Onduleur APC 900VA', 'APC-BX900', 'Accessoires', 'APC', 68000, 85000, 5, 2, 'D-05'),
   ('Webcam Logitech C920 HD', 'LOG-C920', 'Accessoires', 'Logitech', 52000, 69000, 0, 2, 'D-06')
 on conflict (sku) do nothing;
+
+insert into public.categories (name)
+select distinct category from public.products
+on conflict (name) do nothing;
+
+insert into public.category_brands (category_name, name)
+select distinct category, brand
+from public.products
+where brand <> ''
+on conflict (category_name, name) do nothing;

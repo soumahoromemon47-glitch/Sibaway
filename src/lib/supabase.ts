@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { demoProducts } from './demo-data'
-import type { InventorySession, Movement, Product } from '../types'
+import type { CategoryBrand, InventorySession, Movement, Product } from '../types'
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
@@ -85,6 +85,7 @@ export async function syncMovement(movement: Movement): Promise<number | null> {
   const { error } = await supabase.from('stock_movements').upsert({
     id: movement.id,
     product_id: productId,
+    product_category: movement.category ?? '',
     type: movement.type,
     quantity: movement.quantity,
     occurred_at: movement.date,
@@ -124,6 +125,24 @@ export async function syncCategory(category: string) {
 export async function syncCategoryDelete(category: string) {
   if (!supabase) return
   const { error } = await supabase.from('categories').delete().eq('name', category)
+  if (error) throw error
+}
+
+export async function syncCategoryBrand(brand: CategoryBrand) {
+  if (!supabase) return
+  const { error } = await supabase.from('category_brands').upsert({
+    category_name: brand.category,
+    name: brand.name
+  }, { onConflict: 'category_name,name', ignoreDuplicates: true })
+  if (error) throw error
+}
+
+export async function syncCategoryBrandDelete(brand: CategoryBrand) {
+  if (!supabase) return
+  const { error } = await supabase.from('category_brands')
+    .delete()
+    .eq('category_name', brand.category)
+    .eq('name', brand.name)
   if (error) throw error
 }
 
